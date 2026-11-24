@@ -5,6 +5,12 @@
 # whose exact name (Portainer > Volumes) is given by DB_VOLUME.
 # Environment variables of the stack: DB_PASSWORD (the one of the previous stack),
 # DB_VOLUME, and CARBURE_PORT when 8080 is taken.
+# Internal URL: https://money.tomatosoft.org through Traefik, on its external network
+# "frontend". The name is a DNS-only CNAME (grey cloud, never proxied) at Cloudflare to
+# traefik.unraid.tomatosoft.org, a private address: it resolves everywhere but is only
+# reachable from the local network. The certificate comes from the "lets-encrypt"
+# resolver of Traefik (DNS-01 through the Cloudflare API, the only challenge that works
+# for a private address).
 services:
   carbure:
     image: carbure-fork:local
@@ -28,6 +34,18 @@ services:
       SYNC_INTERVAL: 86400
     volumes:
       - /mnt/user/appdata/carbure:/data
+    networks:
+      # default: the database; frontend: Traefik
+      - default
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=frontend"
+      - "traefik.http.routers.carbure.rule=Host(`money.tomatosoft.org`)"
+      - "traefik.http.routers.carbure.entrypoints=websecure"
+      - "traefik.http.routers.carbure.tls=true"
+      - "traefik.http.routers.carbure.tls.certresolver=lets-encrypt"
+      - "traefik.http.services.carbure.loadbalancer.server.port=80"
     depends_on:
       db:
         condition: service_healthy
@@ -56,3 +74,7 @@ volumes:
   carbure-db:
     external: true
     name: ${DB_VOLUME:-carbure_carbure-db}
+
+networks:
+  frontend:
+    external: true
