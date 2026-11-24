@@ -8,9 +8,8 @@
 # Internal URL: https://money.tomatosoft.org through Traefik, on its external network
 # "frontend". The name is a DNS-only CNAME (grey cloud, never proxied) at Cloudflare to
 # traefik.unraid.tomatosoft.org, a private address: it resolves everywhere but is only
-# reachable from the local network. The certificate comes from the "lets-encrypt"
-# resolver of Traefik (DNS-01 through the Cloudflare API, the only challenge that works
-# for a private address).
+# reachable from the local network. The certificate is the wildcard *.tomatosoft.org
+# that Traefik attaches to its websecure entrypoint: the router only needs tls=true.
 services:
   carbure:
     image: carbure-fork:local
@@ -23,8 +22,8 @@ services:
       dockerfile: docker/Dockerfile
     # No published port: the container is only reachable through Traefik. Uncomment for
     # a direct access (http://<unraid>:8080/), CARBURE_PORT when 8080 is taken.
-    ports:
-       - "${CARBURE_PORT:-8080}:80"
+    # ports:
+    #   - "${CARBURE_PORT:-8080}:80"
     environment:
       DB_HOST: db
       DB_NAME: carbure
@@ -46,7 +45,6 @@ services:
       - "traefik.http.routers.carbure.rule=Host(`money.tomatosoft.org`)"
       - "traefik.http.routers.carbure.entrypoints=websecure"
       - "traefik.http.routers.carbure.tls=true"
-      - "traefik.http.routers.carbure.tls.certresolver=lets-encrypt"
       - "traefik.http.services.carbure.loadbalancer.server.port=80"
     depends_on:
       db:
