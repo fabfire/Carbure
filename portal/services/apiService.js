@@ -204,10 +204,11 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {number} month - Month (1-12)
      * @param {number} year - Year
      * @param {number} category - Category ID
+     * @param {boolean} [own=false] - Only the transactions put on the category itself, not on its sub-categories
      * @returns {Promise<Array>} Array of transaction objects
      */
-    async function fetchCategoryTransactions(month, year, category) {
-        const url = `${baseUrl}/transaction?month=${month}&year=${year}&category=${encodeURIComponent(category)}`;
+    async function fetchCategoryTransactions(month, year, category, own = false) {
+        const url = `${baseUrl}/transaction?month=${month}&year=${year}&category=${encodeURIComponent(category)}${own ? '&own=1' : ''}`;
         const data = await request(url, {}, 'Failed to fetch transactions');
         return Array.isArray(data) ? data : [];
     }
@@ -243,12 +244,14 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {string} file - Content of the file, base64 encoded
      * @param {string} filename - Name of the file
      * @param {Array<number>} selected - Indexes of the rows to import
+     * @param {number|null} [account=null] - Account of the transactions (id of GET /bank); by default
+     *                                       the account number read in the file
      * @returns {Promise<Object>} {imported, categorized, from, to}
      */
-    async function importTransactions(file, filename, selected) {
+    async function importTransactions(file, filename, selected, account = null) {
         return request(`${baseUrl}/transaction/import`, {
             method: 'POST',
-            body: JSON.stringify({ file, filename, selected })
+            body: JSON.stringify(account === null ? { file, filename, selected } : { file, filename, selected, account })
         }, 'Failed to import the file');
     }
 
@@ -683,6 +686,61 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
     }
 
     /**
+     * Fetches the monthly series of a category (sub-categories included) or of an insight
+     * @param {string} type - 'category' or 'insight'
+     * @param {number} id - Category or insight id
+     * @param {number} months - Number of months
+     * @param {number} offset - Months between the current month and the end of the period
+     * @returns {Promise<Array>} Array of {month, amount, planned}, oldest first
+     * @throws {Error} If request fails
+     */
+    async function fetchTrendSeries(type, id, months = 12, offset = 0) {
+        const params = new URLSearchParams({ type, id: String(id), months: String(months), offset: String(offset) });
+        const data = await request(`${baseUrl}/budget/trends/series?${params}`, {}, 'Failed to fetch the series');
+        return Array.isArray(data) ? data : [];
+    }
+
+    /**
+     * Fetches the monthly amounts of the categories of a type, to compare them on one chart
+     * @param {string} type - 'DEBIT', 'CREDIT' or 'HORS-BUDGET'
+     * @param {string} level - 'top' (sub-categories counted in their parent) or 'sub'
+     * @param {number} months - Number of months
+     * @param {number} offset - Months between the current month and the end of the period
+     * @returns {Promise<{months: Array<string>, categories: Array<Object>}>} The months (oldest
+     *          first) and the categories {id, name, icon, color, parent_category, total, amounts}
+     * @throws {Error} If request fails
+     */
+    async function fetchTrendCategories(type = 'DEBIT', level = 'top', months = 12, offset = 0) {
+        const params = new URLSearchParams({ type, level, months: String(months), offset: String(offset) });
+        const data = await request(`${baseUrl}/budget/trends/categories?${params}`, {}, 'Failed to fetch the categories');
+        return {
+            months: Array.isArray(data?.months) ? data.months : [],
+            categories: Array.isArray(data?.categories) ? data.categories : []
+        };
+    }
+
+    /**
+     * Fetches the custom charts of the Trends tab
+     * @returns {Promise<Array>} Array of {type, id, name, icon, color}
+     * @throws {Error} If request fails
+     */
+    async function fetchTrendCharts() {
+        const data = await request(`${baseUrl}/budget/trends/charts`, {}, 'Failed to fetch the charts');
+        return Array.isArray(data) ? data : [];
+    }
+
+    /**
+     * Replaces the custom charts of the Trends tab (administrators)
+     * @param {Array<{type: string, id: number}>} charts - Charts in display order
+     * @returns {Promise<Array>} The saved charts: {type, id, name, icon, color}
+     * @throws {Error} If request fails
+     */
+    async function saveTrendCharts(charts) {
+        const data = await request(`${baseUrl}/budget/trends/charts`, { method: 'PUT', body: JSON.stringify({ charts }) }, 'Failed to save the charts');
+        return Array.isArray(data) ? data : [];
+    }
+
+    /**
      * Sets the category of a transaction (the transaction is checked too)
      * @param {number} id - Transaction ID
      * @param {number} category - Category ID
@@ -705,6 +763,19 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
     }
 
     /**
+     * Sets one category on several transactions at once, and checks them
+     * @param {Array<number>} ids - Transaction ids
+     * @param {number} category - Category id (0: uncategorized)
+     * @returns {Promise<{updated: number}>}
+     */
+    async function setTransactionsCategory(ids, category) {
+        return request(`${baseUrl}/transaction/categories`, {
+            method: 'PUT',
+            body: JSON.stringify({ ids, category: Number(category) })
+        }, 'Failed to update the categories');
+    }
+
+    /**
      * Changes the date a transaction is counted on (its month); the real date of the
      * bank is kept, the parts of a split transaction follow it
      * @param {number} id - Transaction id
@@ -719,8 +790,22 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
     }
 
     /**
+     * Sets the free-text comment of a transaction
+     * @param {number} id - Transaction id
+     * @param {string} comment - The comment (500 characters at most), '' removes it
+     * @returns {Promise<Object>} The transaction saved
+     * @throws {Error} If request fails (409 before the database migration)
+     */
+    async function setTransactionComment(id, comment) {
+        return request(`${baseUrl}/transaction/comment`, {
+            method: 'PUT',
+            body: JSON.stringify({ id, comment })
+        }, 'Failed to change the comment of the transaction');
+    }
+
+    /**
      * Enters a transaction by hand on a manual account
-     * @param {{account: number, date: string, label: string, amount: number, category?: number}} transaction - The transaction
+     * @param {{account: number, date: string, label: string, amount: number, category?: number, comment?: string}} transaction - The transaction
      * @returns {Promise<Object>} The transaction saved
      */
     async function createTransaction(transaction) {
@@ -729,7 +814,7 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
 
     /**
      * Changes a transaction entered by hand
-     * @param {{id: number, date: string, label: string, amount: number}} transaction - The new values
+     * @param {{id: number, date: string, label: string, amount: number, comment?: string}} transaction - The new values ('' removes the comment, absent keeps it)
      * @returns {Promise<Object>} The transaction saved
      */
     async function updateTransaction(transaction) {
@@ -1332,12 +1417,13 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * Fetches budget data for a given month and year
      * @param {number} month - Month (1-12)
      * @param {number} year - Year
-     * @param {number} [categoryId] - Optional category ID for children budgets
+     * @param {number} [categoryId] - Optional category ID for children budgets; the list then also
+     *                                has an item (own: true) for the transactions put on the category itself
      * @returns {Promise<Array>} Array of budget objects
      * @throws {Error} If request fails
      */
     async function fetchBudget(month, year, categoryId = null) {
-        const category = categoryId !== null ? `&category=${encodeURIComponent(categoryId)}` : '';
+        const category = categoryId !== null ? `&category=${encodeURIComponent(categoryId)}&own=1` : '';
         return cancellable('budget', `${baseUrl}/budget?month=${month}&year=${year}${category}`, 'Failed to fetch budget');
     }
     
@@ -1628,7 +1714,9 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         updateCategory,
         deleteCategory,
         setTransactionCategory,
+        setTransactionsCategory,
         setTransactionDate,
+        setTransactionComment,
         splitTransaction,
         createTransaction,
         updateTransaction,
@@ -1651,6 +1739,10 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         fetchRuleSettings,
         updateRuleSettings,
         fetchTrends,
+        fetchTrendSeries,
+        fetchTrendCategories,
+        fetchTrendCharts,
+        saveTrendCharts,
         deleteDevice,
         fetchBrowsers,
         deleteBrowser,

@@ -74,9 +74,27 @@ keeps track of what was done).
       (column `budget.note`) is applied at container start. Before it, `GET /budget` returns
       `note: null` and `POST /budget` with a note answers 409 (`budget_note_migration`).
 
+- [ ] **Deployment of the transaction comments**: the migration `2026-11-19_transaction_comment`
+      (column `bank_transaction.comment`, nullable: the existing transactions get `NULL`, no
+      rewrite of the rows) is applied at container start by `tools/migrate.php`. Before it,
+      the transactions have no `comment` field and `PUT /transaction/comment` with a comment
+      answers 409 (`transaction_comment_migration`); the rest works as before.
+
+- [ ] **Mobile apps — transaction comments**: `GET /transaction` and `GET /transaction/search`
+      return `comment` (`null` without one, absent before the migration); show it and offer it
+      in the transaction details (`PUT /transaction/comment` with `id`, `comment`; `""` removes
+      it, 500 characters at most) and in the form of a transaction entered by hand
+      (`POST /transaction` and `PUT /transaction` take an optional `comment`; without it,
+      `PUT /transaction` keeps the current one).
+
 - [ ] **Mobile apps — budget notes (#468)**: `GET /budget` returns `note`; show it and offer it
       in the budget editor (`POST /budget` with `note`, `""` to remove it; without `note`
       the current one is kept).
+
+- [ ] **Mobile apps — transactions put on a parent category (#492)**: in a sub-level of the
+      budgets they are in no card. Ask `GET /budget?category=<parent>&own=1` and show the
+      item with `own: true` (no budget, not to open again); its transactions:
+      `GET /transaction?category=<parent>&own=1`.
 
 - [ ] **Deployment of the order of the insights (#467)**: the migration
       `2026-11-07_insight_position` (column `budget_insight.position`) is applied at container
@@ -336,3 +354,11 @@ keeps track of what was done).
       only the French starter category; an installation in another language (`Savings`,
       `Ahorro`, `Risparmio`, `Sparen`, `Poupança`) has to set it in Settings. Use the
       starter category id (31) or a default per language.
+- [ ] iOS app and MCP: the custom charts and the "By category" chart of the Trends tab
+      (`GET /budget/trends/charts`, `GET /budget/trends/series`,
+      `GET /budget/trends/categories`) and the periods up to 240 months are portal-only; show
+      them in the iOS Trends screen, and expose the series to the MCP `get_trends` tool.
+- [ ] Translations of the custom charts, custom range and "By category" chart of the Trends
+      tab (`trendChart*`, `trendCategories*`, `trendsKind*`, `trendsChartKind`,
+      `trendsCustomRange`, `trendsFrom`, `trendsTo`, `trendsApplyRange`, `trendsRangeInvalid`)
+      in `de`, `es`, `it`, `pt`: to be proofread by native speakers.

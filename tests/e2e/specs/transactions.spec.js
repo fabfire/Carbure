@@ -139,6 +139,25 @@ test('filters the transactions not checked yet', async ({ adminPage: page }) => 
     await expect(page.locator('.transaction-item')).toHaveCount(6);
 });
 
+test('filters the transactions without a category', async ({ adminPage: page }) => {
+    const toggle = page.locator('.toggle-uncategorized');
+    await expect(toggle.locator('.toggle-label')).toHaveText(tr('uncategorizedCount', { count: 1 }));
+
+    await toggle.click();
+    await expect(toggle.getByRole('switch')).toBeChecked();
+    await expect(page.locator('.transaction-item')).toHaveCount(1);
+    await expect(row(page, 'CB BOULANGERIE PAUL')).toBeVisible();
+
+    // Once categorized, it leaves the filtered list
+    await pickCategory(row(page, 'CB BOULANGERIE PAUL'), 'Alimentation');
+    await expect(page.locator('.transaction-item')).toHaveCount(0);
+    await expect(page.locator('.transactions-hint')).toHaveText(tr('allCategorized'));
+    await expect(toggle.locator('.toggle-label')).toHaveText(tr('uncategorizedCount', { count: 0 }));
+
+    await toggle.click();
+    await expect(page.locator('.transaction-item')).toHaveCount(6);
+});
+
 test('checks and unchecks a transaction', async ({ adminPage: page, api }) => {
     const transaction = row(page, 'CB SUPERMARCHE CASINO');
     await transaction.getByRole('button', { name: tr('checkTransaction') }).click();
@@ -301,6 +320,41 @@ test('deletes the selected transactions (#421)', async ({ adminPage: page, api }
     const { month, year } = currentMonth();
     const labels = (await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json()).map(t => t.label);
     expect(labels).not.toContain('CB RESTAURANT LE PETIT ZINC');
+});
+
+test('changes the category of the selected transactions from one of them, and checks them', async ({ adminPage: page, api }) => {
+    await page.getByRole('button', { name: tr('tagSelect'), exact: true }).click();
+    const bar = page.getByRole('region', { name: tr('tagSelect') });
+    // Not selected: a categorized transaction keeps its chip, no picker in the bar
+    await expect(row(page, 'CB RESTAURANT LE PETIT ZINC').locator('.category-picker')).toHaveCount(0);
+    await expect(bar.locator('.category-picker')).toHaveCount(0);
+
+    await page.getByLabel(tr('tagSelectTransaction', { label: 'CB BOULANGERIE PAUL' })).check();
+    await page.getByLabel(tr('tagSelectTransaction', { label: 'CB RESTAURANT LE PETIT ZINC' })).check();
+    // Selected: its category is a picker, which changes the whole selection
+    const restaurant = row(page, 'CB RESTAURANT LE PETIT ZINC');
+    await expect(restaurant.locator('.transaction-category')).toHaveAttribute('title', tr('selectionCategoryHelp', { count: 2 }));
+    await expect(restaurant.locator('.category-picker-name')).toContainText('Restaurant');
+    await pickCategory(restaurant, 'Alimentation');
+
+    await expect(page.locator('.toast')).toHaveText(tr('selectionCategorized', { count: 2, name: 'Alimentation' }));
+    // The selection stays, both show the new category
+    await expect(bar.locator('.tag-selection-count')).toHaveText(tr('tagSelected', { count: 2 }));
+    for (const label of ['CB BOULANGERIE PAUL', 'CB RESTAURANT LE PETIT ZINC']) {
+        await expect(row(page, label).locator('.category-picker-name')).toContainText('Alimentation');
+    }
+    await bar.getByRole('button', { name: tr('selectionClose') }).click();
+    for (const label of ['CB BOULANGERIE PAUL', 'CB RESTAURANT LE PETIT ZINC']) {
+        await expect(row(page, label).locator('.category-chip')).toHaveText('Alimentation');
+    }
+    // The others did not change
+    await expect(row(page, 'CB SUPERMARCHE CASINO').locator('.category-chip')).toHaveText('Supermarché');
+
+    const { month, year } = currentMonth();
+    const saved = (await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json())
+        .filter(t => ['CB BOULANGERIE PAUL', 'CB RESTAURANT LE PETIT ZINC'].includes(t.label));
+    expect(new Set(saved.map(t => Number(t.category))).size).toBe(1);
+    expect(saved.map(t => [Number(t.pointed), t.category_source])).toEqual([[1, 'manual'], [1, 'manual']]);
 });
 
 test('selects all the transactions shown, then closes the selection (#430)', async ({ adminPage: page }) => {
@@ -608,4 +662,45 @@ test('explains why a file cannot be imported', async ({ adminPage: page }) => {
     const modal = page.getByRole('dialog', { name: tr('importTitle') });
     await modal.locator('input[type="file"]').setInputFiles({ name: 'notes.csv', mimeType: 'text/csv', buffer: Buffer.from('a;b\n1;2\n') });
     await expect(modal.getByRole('alert')).toContainText('Columns not found');
+});
+
+test('the category list shows first the categories of the direction of the transaction (#498)', async ({ adminPage: page }) => {
+    const groups = scope => scope.locator('.category-picker-group-title');
+
+    // An expense: expenses, then off-budget (transfers), then incomes
+    await row(page, 'CB BOULANGERIE PAUL').locator('.category-picker-button').click();
+    await expect(groups(row(page, 'CB BOULANGERIE PAUL'))).toHaveText([tr('categoryTypes_DEBIT'), tr('categoryTypes_HORS-BUDGET'), tr('categoryTypes_CREDIT')]);
+    await page.keyboard.press('Escape');
+
+    // An income: incomes first; the expenses are still offered (a refund)
+    await row(page, 'VIR SALAIRE ACME').getByRole('button', { name: new RegExp(tr('transactionDetail')) }).click();
+    const modal = page.getByRole('dialog', { name: tr('transactionDetail') });
+    await modal.locator('.category-picker-button').click();
+    await expect(groups(modal)).toHaveText([tr('categoryTypes_CREDIT'), tr('categoryTypes_HORS-BUDGET'), tr('categoryTypes_DEBIT')]);
+    await expect(modal.locator('.category-picker-option').first()).toContainText('Salaire');
+});
+
+test('imports a statement on the account chosen (#485)', async ({ adminPage: page, api }) => {
+    const accounts = await (await api.get('/api/bank')).json();
+    const account = accounts.find(a => a.account_number === 'DEMO0000001');
+    const date = new Date();
+    date.setDate(8);
+    const csv = 'Date;Libellé;Montant\n' + `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })};CB CORDONNERIE;-14,00\n`;
+
+    await page.getByRole('button', { name: tr('importButton') }).click();
+    const modal = page.getByRole('dialog', { name: tr('importTitle') });
+    await modal.locator('input[type="file"]').setInputFiles({ name: 'releve.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+
+    // No account number in the file: none by default, any account of the household offered
+    const select = modal.getByLabel(tr('importAccountLabel'));
+    await expect(select.locator('option').first()).toHaveText(tr('importAccountNone'));
+    await expect(select).toHaveValue('');
+    await select.selectOption(String(account.id));
+    await modal.getByRole('button', { name: tr('importConfirm', { count: 1 }) }).click();
+    await expect(modal).toHaveCount(0);
+
+    const { month, year } = currentMonth();
+    const imported = (await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json()).find(t => t.label === 'CB CORDONNERIE');
+    expect(imported.bank_name).toBe('bnp');
+    expect(imported.account_number).toBe('DEMO0000001');
 });

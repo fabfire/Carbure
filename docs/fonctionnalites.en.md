@@ -137,6 +137,10 @@ transactions of the last month still without a category.
   direct debit…), card, originating bank, import date; the category and the checked status can be
   changed there. **Similar transactions** runs a search on the merchant's name
   ("PRLV SEPA EDF MDT/123" searches for "EDF").
+- **Comment** a transaction (from its details, **Comment** field, 500 characters): a free
+  text seen by the whole household ("paid back by Paul", "Léa's present"), shown under the
+  date in the lists and found by the search. The synchronization and a statement import do
+  not change it.
 - **Change the date a transaction is counted on**, synchronized or not (from its details,
   **Counted on** field): it moves to the previous or the next month for the totals, the
   budgets and the trends (a bill paid on the 1st that belongs to the month before, a salary
@@ -147,15 +151,20 @@ transactions of the last month still without a category.
   transactions, **Delete**; after confirmation): it disappears
   for the whole household and is never imported again, neither by synchronization nor by importing
   a statement.
+- **Change the category** of several transactions at once: **Select**, tick the
+  transactions, then choose the category in the list, on one of the ticked transactions
+  ("Uncategorized" included): every ticked transaction gets it, and the selection stays. As
+  for a single one, they are checked off and the rules no longer change this category chosen
+  by hand.
 - **Selection mode**: **Select all** ticks every transaction shown (filter and search applied,
   500 at most), then becomes **Unselect all**; the cross at the right of the bar closes the
   selection mode.
 - **Enter a transaction by hand** (**+** button), for example a cash expense, on any
   account: a manual account, or a synchronized one (a transaction the bank does not send
   yet; if it sends it later, delete the duplicate): expense or income, amount, label, date,
-  and category (otherwise the one of the rules). Any user can enter one; it counts like the
+  category (otherwise the one of the rules) and comment. Any user can enter one; it counts like the
   others, is never overwritten by the synchronization and stays editable (label, date,
-  amount) from its details.
+  amount, comment) from its details.
 - **Split** a transaction across several categories (from its details): a supermarket
   receipt partly food and partly home, a cash withdrawal spent on groceries and transport.
   The first line is the transaction itself (its category, which may change, and the amount
@@ -385,7 +394,8 @@ uncategorized transactions remain visible. The same flows are available as a tab
 
 ![Trends of expenses, income and savings over several months](assets/screenshot-trends.webp)
 
-Over **3, 6 or 12 months** up to the current month, optionally **compared** with the previous
+Over **3, 6, 12, 24, 36 or 60 months** up to the current month, or over a **custom period**
+(from a chosen month to a chosen month, 20 years at most), optionally **compared** with the previous
 period or with the same period last year:
 
 | Measure | Calculation |
@@ -401,6 +411,17 @@ The savings category is "Épargne" (case and accents ignored), or the one set in
 `savings_category` setting. The key figures (total and average savings, savings rate, average
 spending compared with the planned budget) show the difference from the compared period. Each chart
 is also available as a table.
+
+The **By category** card compares every category of a type (expenses, income or
+off-budget) on one chart, main categories (subcategories included) or subcategories: a
+click on the chip of a category hides or shows it again (**All** / **None**), the scale
+fitting the categories shown. The chart is drawn as **lines**, stacked **bars** or stacked
+**areas**; this choice, the hidden categories, the type and the level are remembered by the
+browser, and the kind of chart also applies to the custom charts.
+
+Administrators add **custom charts** (12 at most, shared by the household): the month by month
+trend of a category (with its subcategories), of a subcategory or of an insight, with its
+average over the period and, for a category, its planned budget.
 
 ## Insights { #insights }
 

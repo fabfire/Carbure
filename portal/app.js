@@ -23,6 +23,7 @@ import { createInsightsModule } from './modules/insightsModule.js';
 import { createUserModule } from './modules/userModule.js';
 import { createProfileModule } from './modules/profileModule.js';
 import { createTrendsModule } from './modules/trendsModule.js';
+import { createTrendCategoriesModule } from './modules/trendCategoriesModule.js';
 import { createRulesModule } from './modules/rulesModule.js';
 import { createSyncModule } from './modules/syncModule.js';
 import { createAccountsModule } from './modules/accountsModule.js';
@@ -110,6 +111,7 @@ const app = createApp({
         createUserModule(() => apiService),
         createProfileModule(() => apiService),
         createTrendsModule(() => apiService),
+        createTrendCategoriesModule(() => apiService),
         createRulesModule(() => apiService),
         createSyncModule(() => apiService),
         createAccountsModule(() => apiService),
@@ -354,16 +356,31 @@ const app = createApp({
 
         /**
          * Loads the money flow of the selected month (Budget tab)
+         * @param {boolean} keepSelection - Keeps the selected node and reloads its transactions
          * @returns {Promise<void>}
          */
-        async loadBudgetFlow() {
+        async loadBudgetFlow(keepSelection = false) {
             // The nodes depend on the month
-            this.selectFlowNode(null);
+            if (!keepSelection) {
+                this.selectFlowNode(null);
+            }
             try {
                 this.budgetFlow = await apiService.fetchBudgetFlow(this.selectedMonth, this.selectedYear);
             } catch (error) {
                 this.budgetFlow = null;
             }
+            if (keepSelection && this.flowSelection) {
+                this.selectFlowNode(this.flowSelection);
+            }
+        },
+
+        /**
+         * Reloads the Budget tab where it stands (displayed level, listed transactions,
+         * money flow and its selected node): a transaction changed category or was deleted
+         */
+        refreshBudgetTab() {
+            this.reloadBudgetLevel(this.selectedMonth, this.selectedYear);
+            this.loadBudgetFlow(true);
         },
 
         /**

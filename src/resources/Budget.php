@@ -19,7 +19,12 @@ use Carbure\Lib\Month;
 use Error;
 
 final class Budget {
-    
+
+    /**
+     * Longest period of the trends, and furthest end of a period, in months (20 years)
+     */
+    public const MAX_TREND_MONTHS = 240;
+
     /**
      * Get the current budget consumption by category.
      *
@@ -29,12 +34,16 @@ final class Budget {
      * @param int|string|null $month    The month to get the budget
      * @param int|string|null $year     The year to get the budget
      * @param int|string|null $category The parent category id
+     * @param bool|int|string|null $own With a parent category: also an item for the transactions
+     *               put on the parent itself, which no sub-category shows ("true"/"1" from a query string)
      * @return list<array<string, mixed>> The list of budget items; besides budget, note (of the
      *               budget of the month, null if none), consummed and progress: budget_mode ('own' or 'children': sum of the sub-categories),
-     *               children (number of sub-categories) and children_budget (their sum)
+     *               children (number of sub-categories) and children_budget (their sum); with $own, the item
+     *               of the transactions of the parent itself has own = true (id of the parent, no budget)
      */
     #[ApiRoute('/budget', method: 'GET')]
-    public static function get(int|string|null $month = null, int|string|null $year = null, int|string|null $category = 0): array
+    public static function get(int|string|null $month = null, int|string|null $year = null, int|string|null $category = 0,
+        bool|int|string|null $own = false): array
     {
         [$from, $to] = Month::range($month, $year);
 
@@ -83,10 +92,39 @@ final class Budget {
             $budget[] = $row;
         }
 
+        // Transactions put on the parent itself (rules may target it): shown apart, or they would be in no card
+        if ((int)$category !== 0 && filter_var($own, FILTER_VALIDATE_BOOLEAN) && isset($totals[$category])) {
+            $budget[] = self::ownItem((int)$category, (float)$totals[$category]);
+        }
+
         // Most consumed first
         usort($budget, fn($a, $b) => $b['consummed'] <=> $a['consummed']);
 
         return $budget;
+    }
+
+    /**
+     * Budget item of the transactions put on a parent category itself rather than on
+     * one of its sub-categories: no budget of its own, only what they consume.
+     *
+     * @param int   $category The parent category id
+     * @param float $total    Sum of the transactions of the month put on the parent
+     * @return array<string, mixed> The item, with the columns of the parent and own = true
+     */
+    private static function ownItem(int $category, float $total): array
+    {
+        $row = Db::queryOne("SELECT id, name, type, icon, color FROM bank_transaction_category WHERE id = ?", "i", $category)
+            ?? ['id' => $category, 'name' => '', 'type' => 'DEBIT', 'icon' => '', 'color' => ''];
+        return $row + [
+            'budget' => '0.00',
+            'note' => null,
+            'budget_mode' => 'own',
+            'children' => 0,
+            'children_budget' => 0,
+            'consummed' => self::consummed((string)$row['type'], $total),
+            'progress' => 0,
+            'own' => true,
+        ];
     }
 
     /**
@@ -147,7 +185,7 @@ final class Budget {
      * @param int   $children Number of sub-categories
      * @return string 'own' or 'children'
      */
-    private static function budgetMode(float $amount, int $children): string
+    public static function budgetMode(float $amount, int $children): string
     {
         return $children > 0 && $amount == 0 ? 'children' : 'own';
     }
@@ -357,24 +395,19 @@ final class Budget {
      *              ("Epargne" by default, setting savings_category) and its
      *              sub-categories, positive when saved
      *
-     * @param int|string|null $months The number of months (1 to 60)
+     * @param int|string|null $months The number of months (1 to 240)
      * @param int|string|null $offset Number of months between the current month and the last month
-     *                                of the period (0 = up to the current month, used for comparisons)
+     *                                of the period (0 to 240; 0 = up to the current month, used for comparisons)
      * @return list<array<string, mixed>> The list of months
      */
     #[ApiRoute('/budget/trends', method: 'GET')]
     public static function getTrends(int|string|null $months = 24, int|string|null $offset = 0): array
     {
-        $months = max(1, min(60, (int)$months));
-        $offset = max(0, min(120, (int)$offset));
-        $last = date('Y-m-01', Month::timestamp(date('Y-m-01') . " -$offset months"));
-        $from = date('Y-m-01', Month::timestamp("$last -" . ($months - 1) . ' months'));
-        $to = date('Y-m-01', Month::timestamp("$last +1 month"));
+        [$list, $from, $to] = self::period($months, $offset);
 
         // Empty months are kept with zero values
         $trends = [];
-        for ($i = 0; $i < $months; $i++) {
-            $month = date('Y-m', Month::timestamp("$from +$i months"));
+        foreach ($list as $month) {
             $trends[$month] = ['month' => $month, 'debit' => 0, 'credit' => 0, 'offBudget' => 0, 'planned' => 0, 'savings' => 0];
         }
 
@@ -384,6 +417,30 @@ final class Budget {
         }
 
         return array_values($trends);
+    }
+
+    /**
+     * Months of a trends period, oldest first: the number of months is kept between 1
+     * and Budget::MAX_TREND_MONTHS, the offset between 0 and Budget::MAX_TREND_MONTHS.
+     *
+     * @param int|string|null $months The number of months
+     * @param int|string|null $offset Number of months between the current month and the last month of the period
+     * @return array{0: list<string>, 1: string, 2: string} [months (Y-m), first day of the period,
+     *         first day after the period (Y-m-d)]
+     */
+    public static function period(int|string|null $months, int|string|null $offset): array
+    {
+        $months = max(1, min(self::MAX_TREND_MONTHS, (int)$months));
+        $offset = max(0, min(self::MAX_TREND_MONTHS, (int)$offset));
+        $last = date('Y-m-01', Month::timestamp(date('Y-m-01') . " -$offset months"));
+        $from = date('Y-m-01', Month::timestamp("$last -" . ($months - 1) . ' months'));
+        $to = date('Y-m-01', Month::timestamp("$last +1 month"));
+
+        $list = [];
+        for ($i = 0; $i < $months; $i++) {
+            $list[] = date('Y-m', Month::timestamp("$from +$i months"));
+        }
+        return [$list, $from, $to];
     }
 
     /**

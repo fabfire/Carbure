@@ -96,12 +96,12 @@ premier plan ; ensuite, l'en-tête de chaque réponse suffit (voir ci-dessous).
 
 | Type | Incrémenté par |
 |---|---|
-| `transactions` | synchronisation (transaction nouvelle ou modifiée, catégorie trouvée), `POST /transaction/import`, `POST /transaction`, `PUT /transaction`, `PUT /transaction/category`, `PUT /transaction/date`, `PUT /transaction/pointed`, `PUT /transaction/split`, `PUT /transaction/tags`, `DELETE /tag`, `DELETE /transaction`, règles appliquées à l'historique, `DELETE /category` |
+| `transactions` | synchronisation (transaction nouvelle ou modifiée, catégorie trouvée), `POST /transaction/import`, `POST /transaction`, `PUT /transaction`, `PUT /transaction/category`, `PUT /transaction/categories`, `PUT /transaction/comment`, `PUT /transaction/date`, `PUT /transaction/pointed`, `PUT /transaction/split`, `PUT /transaction/tags`, `DELETE /tag`, `DELETE /transaction`, règles appliquées à l'historique, `DELETE /category` |
 | `accounts` | synchronisation (compte en erreur, réparé ou autre erreur), `POST`/`PUT`/`DELETE /bank`, `/bank/backend` |
 | `categories` | `POST`/`PUT`/`DELETE /category`, `/category/keyword`, `PUT /category/keyword/settings` |
 | `budgets` | `POST /budget`, `POST /budget/copy`, `DELETE /category` |
 | `insights` | `POST`/`PUT`/`DELETE /insight`, `PUT /insight/enabled`, `PUT /insight/order` |
-| `settings` | `PUT /system/config` |
+| `settings` | `PUT /system/config`, `PUT /budget/trends/charts` |
 | `tags` | `POST`/`PUT`/`DELETE /tag` |
 
 `POST /backup/import` incrémente tous les types ; `POST /purge` tous sauf `accounts` et `settings`. Les insights et les tendances sont
@@ -591,11 +591,13 @@ choisis (voir [`GET /user/notifications`](#get-usernotifications)).
 |---|---|---|
 | `month`, `year` | non | Mois des transactions (mois courant par défaut) |
 | `category` | non | Limite aux transactions de cette catégorie **et de ses sous-catégories** |
+| `own` | non | Avec `category` : `1` limite aux transactions rangées sur la catégorie elle-même, sans ses sous-catégories |
 
 Les transactions sont triées par date réelle décroissante. Champs : `id`, `uuid`,
 `imported`, `date`, `rdate`, `type`, `label`, `category`, `amount`, `card`, `bank_name`
 et `account_number` (compte d'origine ; `null` pour les transactions antérieures à leur
-ajout), `pointed`, `user`.
+ajout), `pointed`, `user`, `comment` (commentaire libre du foyer, `null` sans commentaire ;
+absent tant que la migration `2026-11-19_transaction_comment` n'est pas appliquée).
 
 ```bash
 curl "https://exemple.fr/api/transaction?month=9&year=2026&category=1" -H "Authorization: Bearer $TOKEN"
@@ -640,8 +642,9 @@ faut au moins un (`400 search_too_short` sinon).
 
 | Paramètre | Requis | Description |
 |---|---|---|
-| `query` | non | Texte recherché dans le libellé (2 caractères minimum, insensible à la casse) ; `#nom` : les transactions du tag |
+| `query` | non | Texte recherché dans le libellé ou le commentaire (2 caractères minimum, insensible à la casse) ; `#nom` : les transactions du tag |
 | `min`, `max` | non | Montant minimal et maximal, sans signe : `min=50` trouve une dépense de -50 comme un revenu de 50 (`400 search_amount_invalid` si négatif ou `min` > `max`) |
+| `in` | non | `label` : le texte de `query` dans le libellé seulement, pas dans le commentaire (transactions similaires à une autre) |
 | `kind` | non | `debit` : dépenses seules, `credit` : revenus seuls |
 | `categories` | non | Ids de catégories séparés par des virgules ; une catégorie inclut ses sous-catégories |
 | `accounts` | non | Comptes séparés par des virgules, sous la forme `bankId` de `GET /bank` (`numéro@banque`) |
@@ -692,7 +695,9 @@ transactions), `422` (format non reconnu, colonnes CSV introuvables, XML invalid
 ### `POST /transaction/import`
 
 Mêmes paramètres, plus `selected` (facultatif) : les `index` des lignes à importer ; par
-défaut, les lignes `new`. Les lignes `known` ne sont jamais importées. Les transactions
+défaut, les lignes `new`. `account` (facultatif) : l'`id` d'un compte de `GET /bank`, auquel
+les transactions sont rattachées (404 `account_not_found` s'il n'existe pas) ; par défaut,
+le numéro de compte lu dans le fichier. Les lignes `known` ne sont jamais importées. Les transactions
 appartiennent à l'utilisateur connecté, puis les règles de catégorisation s'appliquent
 quelle que soit leur date. Renvoie `imported`, `categorized`, `from` et `to` (période des
 lignes choisies).
@@ -709,6 +714,19 @@ curl -X POST https://exemple.fr/api/transaction/import -H "Authorization: Bearer
 pour ne pas la pointer). La catégorie est choisie à la main (`category_source` `manual`) :
 les règles ne la changent plus.
 
+### `PUT /transaction/categories`
+
+`ids` (1 à 500 transactions), `category` : affecte la même catégorie à toutes, en une fois
+(toutes ou aucune ; `400 tag_selection_limit`, `404 category_not_found`), et les pointe avec
+les parts des transactions réparties (`autoPointed=false` pour ne pas les pointer). Comme
+pour une seule, la catégorie est choisie à la main (`category_source` `manual`). Renvoie
+`{updated}` : le nombre de transactions dont la catégorie a changé.
+
+```bash
+curl -X PUT https://exemple.fr/api/transaction/categories -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"ids":[42,43],"category":5}'
+```
+
 ### `PUT /transaction/pointed`
 
 `id`, `pointed` (booléen, défaut `true`) : marque la transaction comme vérifiée ou non.
@@ -716,6 +734,21 @@ les règles ne la changent plus.
 ```bash
 curl -X PUT https://exemple.fr/api/transaction/pointed -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"id":42,"pointed":false}'
+```
+
+### `PUT /transaction/comment`
+
+`id`, `comment` : commentaire libre de la transaction (synchronisée, importée, saisie à la
+main ou part d'une transaction répartie), visible par tout le foyer. 500 caractères au plus
+(`400 transaction_comment_length`, `params.max`), espaces de début et de fin retirés ; `""`
+(ou `comment` absent) le supprime. La synchronisation et l'import ne le modifient jamais ;
+les parts d'une transaction répartie ont chacune le leur. Renvoie la transaction de l'`id`.
+`404 transaction_not_found` ; `409 transaction_comment_migration` si la migration
+`2026-11-19_transaction_comment` n'est pas encore appliquée.
+
+```bash
+curl -X PUT https://exemple.fr/api/transaction/comment -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"id":42,"comment":"Remboursé par Paul en juin"}'
 ```
 
 ### `PUT /transaction/date`
@@ -736,13 +769,17 @@ curl -X PUT https://exemple.fr/api/transaction/date -H "Authorization: Bearer $T
 
 Saisit une transaction à la main sur un compte du foyer, manuel ou synchronisé : `account`
 (`id` du compte, voir `GET /bank`), `date` (`AAAA-MM-JJ`), `label`, `amount` (négatif pour
-une dépense) et `category` (facultative : sinon celle des règles, sinon aucune). Elle est
+une dépense), `category` (facultative : sinon celle des règles, sinon aucune) et `comment`
+(facultatif, voir `PUT /transaction/comment` ; vérifié avant l'enregistrement : refusé, rien
+n'est saisi). Elle est
 pointée, de type `8` (dépense), avec le `bank_name` et l'`account_number` du compte ; son
 `uuid` commence par `manual` (jamais celui d'une banque), ce qui la distingue d'une
 transaction synchronisée : la synchronisation ne l'écrase pas, mais si la banque envoie plus
 tard la même transaction, elle s'ajoute en doublon. Renvoie la transaction. Erreurs `400` :
-`transaction_date_invalid`, `transaction_label_invalid`, `transaction_amount_invalid` ;
-`404` si le compte ou la catégorie n'existe pas.
+`transaction_date_invalid`, `transaction_label_invalid`, `transaction_amount_invalid`,
+`transaction_comment_length` ; `404` si le compte ou la catégorie n'existe pas ;
+`409 transaction_comment_migration` pour un commentaire avant la migration
+`2026-11-19_transaction_comment`.
 
 ```bash
 curl -X POST https://exemple.fr/api/transaction -H "Authorization: Bearer $TOKEN" \
@@ -753,7 +790,8 @@ curl -X POST https://exemple.fr/api/transaction -H "Authorization: Bearer $TOKEN
 
 Modifie une transaction saisie à la main (sur un compte manuel, ou `uuid` commençant par
 `manual`) : `id` et les valeurs à changer parmi `date`,
-`label` et `amount`. `400 transaction_not_manual` pour une transaction d'une banque ou une
+`label`, `amount` et `comment` (`""` le supprime ; sans `comment`, applications mobiles, le
+commentaire existant est conservé). `400 transaction_not_manual` pour une transaction d'une banque ou une
 part de répartition, `400 transaction_split_amount` pour le montant d'une transaction
 répartie (annuler d'abord la répartition). Renvoie la transaction.
 
@@ -802,6 +840,11 @@ du mois donne 0 ; valeur absolue pour `HORS-BUDGET`), `progress` (%), `children`
 (nombre de sous-catégories), `children_budget` (somme de leurs budgets) et `budget_mode` :
 `own` (montant défini pour la catégorie) ou `children` (catégorie avec sous-catégories et
 sans montant défini : `budget` est alors la somme des budgets des sous-catégories).
+
+Avec `own=1` et une catégorie parente, la liste ajoute un élément pour les transactions
+rangées sur la catégorie parente elle-même plutôt que sur une sous-catégorie : `own: true`,
+`id` de la parente, sans budget (`budget` à 0), avec ce qu'elles consomment. Il n'apparaît
+que si le mois en a ; sans `own`, la réponse est inchangée.
 
 ### `GET /budget/flow`
 
@@ -862,8 +905,8 @@ précédent, `AAAA-MM`), `copied` (budgets écrits) et `overwrite`.
 
 | Paramètre | Requis | Description |
 |---|---|---|
-| `months` | non | Nombre de mois (1 à 60, défaut 24) |
-| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (défaut 0). Sert aux comparaisons : `offset=months` pour la période précédente, `offset=12` pour la même période l'an dernier |
+| `months` | non | Nombre de mois (1 à 240, défaut 24) |
+| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (0 à 240, défaut 0). Sert aux comparaisons : `offset=months` pour la période précédente, `offset=12` pour la même période l'an dernier |
 
 Renvoie un élément par mois (du plus ancien au plus récent, mois vides inclus) :
 
@@ -883,6 +926,84 @@ curl "https://exemple.fr/api/budget/trends?months=6&offset=12" -H "Authorization
 ```json
 [{ "month": "2025-05", "debit": 2130.37, "credit": 5114, "offBudget": -500, "planned": 2330, "savings": 2983.63 }]
 ```
+
+### `GET /budget/trends/series`
+
+Évolution mensuelle d'une catégorie ou d'un insight, pour les graphiques personnalisés de
+l'onglet Tendances.
+
+| Paramètre | Requis | Description |
+|---|---|---|
+| `type` | oui | `category` ou `insight` |
+| `id` | oui | Identifiant de la catégorie ou de l'insight (entier positif) |
+| `months` | non | Nombre de mois (1 à 240, défaut 24) |
+| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (0 à 240, défaut 0) |
+
+Renvoie un élément par mois (du plus ancien au plus récent, mois vides à `0`) :
+
+| Champ | Description |
+|---|---|
+| `month` | `AAAA-MM` |
+| `amount` | Catégorie : total de ses transactions et de celles de ses sous-catégories, positif pour une dépense d'une catégorie `DEBIT` (un remboursement le diminue), brut pour les autres types. Insight : valeur de sa requête pour le mois (`0` en cas d'échec) |
+| `planned` | Catégorie : budget du mois comme dans l'onglet Budget (montant défini, ou somme des sous-catégories), `null` sans budget. Insight : toujours `null` |
+
+`400` pour un type ou un identifiant invalide, `404` pour une catégorie ou un insight inconnu.
+
+```bash
+curl "https://exemple.fr/api/budget/trends/series?type=category&id=1&months=36" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+[{ "month": "2026-09", "amount": 412.5, "planned": 450 }, { "month": "2026-10", "amount": 127.4, "planned": null }]
+```
+
+### `GET /budget/trends/categories`
+
+Évolution mensuelle de toutes les catégories d'un type, pour les comparer sur un même
+graphique (carte « Par catégorie » de l'onglet Tendances).
+
+| Paramètre | Requis | Description |
+|---|---|---|
+| `type` | non | `DEBIT` (défaut), `CREDIT` ou `HORS-BUDGET` |
+| `level` | non | `top` (défaut) : catégories de premier niveau, sous-catégories comptées dans leur parent (le type est celui du parent) ; `sub` : chaque catégorie séparément |
+| `months` | non | Nombre de mois (1 à 240, défaut 24) |
+| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (0 à 240, défaut 0) |
+
+Renvoie `months` (les mois `AAAA-MM` de la période, du plus ancien au plus récent) et
+`categories` : `id`, `name`, `icon`, `color`, `parent_category`, `total` de la période et
+`amounts` (un montant par mois de `months`, mois vides à `0`). Les montants sont positifs
+pour les dépenses d'une catégorie `DEBIT` (un remboursement les diminue), bruts pour les
+autres types. Seules les catégories ayant un montant sur la période sont renvoyées, de la
+plus grosse à la plus petite ; la catégorie `0` (non catégorisé) est exclue.
+
+`400` pour un type ou un niveau inconnu.
+
+```bash
+curl "https://exemple.fr/api/budget/trends/categories?type=DEBIT&level=top&months=3" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "months": ["2026-08", "2026-09", "2026-10"],
+  "categories": [
+    { "id": 4, "name": "Logement", "icon": "home", "color": "blue", "parent_category": 0, "total": 2850, "amounts": [950, 950, 950] },
+    { "id": 1, "name": "Alimentation", "icon": "restaurant", "color": "green", "parent_category": 0, "total": 247.4, "amounts": [0, 120, 127.4] }
+  ]
+}
+```
+
+### `GET /budget/trends/charts`
+
+Graphiques personnalisés de l'onglet Tendances, partagés par le foyer, dans l'ordre
+d'affichage : `type`, `id`, `name`, `icon`, `color` de la catégorie ou de l'insight. Les
+graphiques dont la catégorie ou l'insight a été supprimé sont ignorés.
+
+### `PUT /budget/trends/charts` (administrateur)
+
+Remplace la liste. Corps : `{"charts": [{"type": "category", "id": 1}, {"type": "insight", "id": 2}]}`
+(12 graphiques au plus, sans doublon, catégories et insights existants ; sinon `400`). Renvoie
+la liste enregistrée, comme `GET`. Elle est stockée dans le réglage `trend_charts`
+(ex. `["c1","i2"]`), sans migration.
 
 ## Tags
 
@@ -1318,7 +1439,7 @@ Le fichier de configuration, par section : `file` (chemin dans l'instance), `wri
 
 `values` : les nouvelles valeurs par clé, uniquement parmi les réglages modifiables
 (`log_level`, `log_retention_days`, `savings_category`, `public_url`, `currency`, `next_month_day`, `woob_transactions`, `woob_logging`,
-`woob_debug`, `woob_auto_update`, `woob_2fa_wait`, `woob_2fa_retries`, `push_api_key`, `smtp_host`, `smtp_port`, `smtp_encryption`, `smtp_auth`,
+`woob_debug`, `woob_auto_update`, `woob_relabel`, `woob_2fa_wait`, `woob_2fa_retries`, `push_api_key`, `smtp_host`, `smtp_port`, `smtp_encryption`, `smtp_auth`,
 `smtp_username`, `smtp_password`, `smtp_from`, `smtp_from_name`). Toutes les valeurs sont vérifiées avant d'écrire quoi que
 ce soit (`400` sinon, fichier inchangé) ; l'ancien fichier est gardé en `.bak`. Renvoie la
 configuration comme `GET`.

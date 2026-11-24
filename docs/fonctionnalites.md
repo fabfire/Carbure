@@ -137,6 +137,10 @@ transactions du dernier mois restées sans catégorie.
   prélèvement…), carte, banque d'origine, date d'import ; la catégorie et le pointage s'y
   modifient. **Transactions similaires** y lance la recherche sur le nom du commerçant
   (« PRLV SEPA EDF MDT/123 » cherche « EDF »).
+- **Commenter** une transaction (depuis son détail, champ **Commentaire**, 500 caractères) :
+  un texte libre visible par tout le foyer (« remboursé par Paul », « cadeau de Léa »), affiché
+  sous la date dans les listes et trouvé par la recherche. La synchronisation et l'import d'un
+  relevé ne le modifient pas.
 - **Changer la date comptée** d'une transaction, synchronisée ou non (depuis son détail,
   champ **Date comptée**) : elle passe au mois précédent ou suivant pour les totaux, les
   budgets et les tendances (une facture payée le 1er qui concerne le mois d'avant, un
@@ -147,15 +151,20 @@ transactions du dernier mois restées sans catégorie.
   cocher les transactions, **Supprimer** ; après confirmation) : elle disparaît
   pour tout le foyer et n'est plus réimportée, ni par la synchronisation ni par l'import
   d'un relevé.
+- **Changer la catégorie** de plusieurs transactions d'un coup : **Sélectionner**, cocher les
+  transactions, puis choisir la catégorie dans la liste, sur l'une des transactions cochées
+  (« Non catégorisé » compris) : toutes les transactions cochées la prennent, et la sélection
+  reste. Comme pour une seule, elles sont pointées et les règles ne changent plus cette
+  catégorie choisie à la main.
 - **Mode sélection** : **Tout sélectionner** coche toutes les transactions affichées (filtre et
   recherche appliqués, 500 au plus), puis devient **Tout désélectionner** ; la croix à droite de
   la barre ferme le mode sélection.
 - **Saisir une transaction à la main** (bouton **+**), par exemple une dépense en
   espèces, sur n'importe quel compte : un compte manuel, ou un compte synchronisé (une
   transaction que la banque n'envoie pas encore ; si elle l'envoie ensuite, supprimer le
-  doublon) : dépense ou revenu, montant, libellé, date, et catégorie (sinon celle des
-  règles). Tout utilisateur peut en saisir ; elle est comptée comme les autres, n'est jamais
-  écrasée par la synchronisation et reste modifiable (libellé, date, montant) depuis son
+  doublon) : dépense ou revenu, montant, libellé, date, catégorie (sinon celle des
+  règles) et commentaire. Tout utilisateur peut en saisir ; elle est comptée comme les autres, n'est jamais
+  écrasée par la synchronisation et reste modifiable (libellé, date, montant, commentaire) depuis son
   détail.
 - **Répartir** une transaction sur plusieurs catégories (depuis son détail) : un ticket de
   supermarché en partie alimentation et en partie maison, un retrait d'espèces dépensé en
@@ -390,7 +399,8 @@ transactions non catégorisées restent visibles. Les mêmes flux existent en ta
 
 ![Tendances des dépenses, des revenus et de l'épargne sur plusieurs mois](assets/screenshot-trends.webp)
 
-Sur **3, 6 ou 12 mois** jusqu'au mois courant, éventuellement **comparés** à la période
+Sur **3, 6, 12, 24, 36 ou 60 mois** jusqu'au mois courant, ou sur une **période personnalisée**
+(du mois choisi au mois choisi, 20 ans au plus), éventuellement **comparés** à la période
 précédente ou à la même période l'an dernier :
 
 | Mesure | Calcul |
@@ -406,6 +416,19 @@ La catégorie d'épargne est « Épargne » (casse et accents ignorés), ou cell
 `savings_category`. Les chiffres clés (épargne cumulée et moyenne, taux d'épargne, dépenses
 moyennes face au budget planifié) indiquent l'écart avec la période comparée. Chaque graphique
 existe aussi en tableau.
+
+La carte **Par catégorie** compare toutes les catégories d'un type (dépenses, revenus ou
+hors budget) sur un même graphique, catégories principales (sous-catégories incluses) ou
+sous-catégories : chaque catégorie se masque ou se réaffiche d'un clic sur sa pastille
+(**Tout** / **Aucun**), l'échelle s'adaptant aux catégories affichées. Le graphique se
+dessine en **lignes**, en **barres** empilées ou en **aires** empilées ; ce choix, les
+catégories masquées, le type et le niveau sont retenus par le navigateur, et le type de
+graphique s'applique aussi aux graphiques personnalisés.
+
+Les administrateurs ajoutent des **graphiques personnalisés** (12 au plus, partagés par le
+foyer) : l'évolution mois par mois d'une catégorie (avec ses sous-catégories), d'une
+sous-catégorie ou d'un insight, avec sa moyenne sur la période et, pour une catégorie, son
+budget prévu.
 
 ## Insights
 

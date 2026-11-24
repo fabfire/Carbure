@@ -134,13 +134,15 @@ taskbar or the home screen.
   operation type if they are not categorized), label, date and amount.
 - **Checking**: the round button on the left of each transaction marks it as checked
   (green tick) or unchecked. Unchecked transactions are in bold.
-- **Filter**: next to the number of transactions, a switch limits the list to
-  unchecked transactions (with their number).
+- **Filters**: next to the number of transactions, a switch limits the list to
+  unchecked transactions, another one to the transactions of the month **without a
+  category** (each with their number); they combine. A transaction leaves the filtered
+  list as soon as it is categorized.
 - **Recurring transactions**: those found every month (salary, rent,
   subscriptions, bills, `GET /transaction/recurring`) carry the "Monthly" badge. Their
   bar, at the top of the list like the selection one, is folded by default (only their
   number); its chevron unfolds it, a choice remembered by the browser: received and
-  expected, "Recurring transactions total", and a second switch that shows only them and
+  expected, "Recurring transactions total", and a switch that shows only them and
   lists those that have not arrived yet ("Expected this month", with their usual day and
   amount, "≈" if it varies; "Missing this month" for a past month). Folding it removes
   that filter. The bar does not appear during a search.
@@ -153,12 +155,19 @@ taskbar or the home screen.
   transactions.
 - **Search**: the search field (2 characters minimum) queries
   `GET /transaction/search` across all months and shows the **total** of the transactions
-  found; the filter also applies to the results. The cross clears the search.
+  found; the filters (unchecked, without a category) also apply to the results. The cross clears the search.
 - **Manual categorization**: a transaction without a category offers a
-  "Categorize…" picker (icons, colors, search); the transaction is also checked. For an administrator, a banner
+  "Categorize…" picker (icons, colors, search); the transaction is also checked. This
+  picker, like those of the detail, of the manual entry and of the split, shows first the
+  categories of the direction of the transaction (income for a credit, expenses for a
+  debit), then the off-budget categories, then the others (a refund is a credit on an
+  expense category). For an administrator, a banner
   then offers to **Create a rule** to classify this label automatically: it opens
   the Rules tab with the label and the category pre-filled, the keyword can be
   shortened (dates, card numbers…).
+  In **Select** mode, every ticked transaction shows this picker: the category chosen on one
+  of them applies to every ticked transaction (they are also checked; no rule offered), and
+  the selection stays.
 - **Transaction details**: a click (or Enter) on the label opens a window with
   the amount, the full label, the dates, the type, the card, the bank (synchronized account
   or imported statement) and the import date; the
@@ -166,7 +175,9 @@ taskbar or the home screen.
   **Counted on** field changes the month the transaction counts in, synchronized or not (the
   real date of the bank stays shown and does not change): once saved, the list, the totals and
   the months offered are reloaded, the transaction moves to its new month and the next
-  synchronizations keep this date. The trash
+  synchronizations keep this date. The **Comment** field (free text, 500 characters, empty to
+  remove it), the last field of the window, is saved with the rest; a comment is shown under the date of the transaction in
+  the lists (one line, whole text on hover). The trash
   button deletes the transaction, after confirmation: it is no longer imported again, neither by
   the synchronization nor by a statement import (marked "Deleted" in the preview).
   The **Similar transactions** button closes the window and starts a search with the
@@ -174,13 +185,14 @@ taskbar or the home screen.
   merchant (card number, date, mandate reference): "PRLV SEPA EDF MDT/123"
   searches for "EDF". The search is then cleared with the cross, like a typed search.
 - **Enter a transaction by hand**: the **Add** button opens a form (account, expense or
-  income, amount, date, label, optional category: otherwise the one of the rules). Handy
+  income, amount, date, label, optional category: otherwise the one of the rules; optional
+  comment, last). Handy
   for a cash expense; any user can enter one. The account is chosen among all the ones of
   the household: the **manual accounts** first (the first one is offered), then the
   synchronized ones. On a synchronized account, the form recalls that the bank may later
   send the same transaction: then delete the duplicate. The transaction is checked, is never
   overwritten by the synchronization, and stays editable from its details (pencil **Edit** button, next to the trash:
-  date, label, amount).
+  date, label, amount, comment).
 - **Split a transaction** across several categories: in its details, the **Split** icon
   button opens a window with one row per part (category and amount, typed without sign: it
   takes the one of the transaction; 10 parts at most). The **rest**, computed again as you
@@ -210,6 +222,9 @@ taskbar or the home screen.
   with another label: not ticked) or **already there** (same identifier: ignored).
   Each transaction has its box: untick those not to import (or "Check all" to
   tick or untick everything); the button shows the number of transactions imported.
+  The **Account of the transactions** list attaches the file to an account of the
+  household (manual or synchronized); it offers the account whose number is read in the
+  file, else the number of the file is kept as is.
   Imported transactions belong to the logged-in user and go through the
   categorization rules; the list then opens on the last imported month
   (`POST /transaction/import/preview`, `POST /transaction/import`). No synchronized account
@@ -237,13 +252,17 @@ Two sub-tabs: **Flow** (shown by default) and **Budgets**.
   left to right as the budget is used (green up to 105% of the budget, red
   beyond). The budget of a parent category preceded by "Σ" is the sum of its
   sub-categories.
-- Separate sections: **budgeted expenses**, **income**, **off-budget and
-  inactive**.
+- Separate sections: **budgeted expenses**, **income**, **not budgeted and
+  off-budget**. An expense category without a budget (amount at 0) shows there what it
+  spent, without gauge nor overspending, and does not count in the summary.
 - **Click on a category**: list of its transactions of the month (sub-categories
   included) with their total and the checking; if it has sub-categories, their
-  cards are shown, with a breadcrumb to go back up.
+  cards are shown, with a breadcrumb to go back up. The transactions put directly on
+  the parent category have their own card, "*Category* (no sub-category)", without a
+  budget: the total of the category adds up in its cards.
 - Settings button of a card: changes the budgeted amount for the month. For a
-  parent category, the **Sum of the sub-categories** box uses their sum; unticked,
+  category without sub-categories, the **No budget for this category** box saves a budget
+  at 0. For a parent category, the **Sum of the sub-categories** box uses their sum; unticked,
   the amount typed replaces it. The **Note** field keeps a reminder of what the budget
   covers (200 characters at most), shown under the amounts of the card and copied with
   the budget to the next month; emptying it removes the note.
@@ -291,7 +310,9 @@ Sample queries are in [Insight recipes](insights.md).
 
 ![Trends screen of the Carbure web portal](assets/screenshot-trends.webp)
 
-- Period of **3, 6 or 12 months** ending with the current month.
+- Period of **3, 6, 12, 24, 36 or 60 months** ending with the current month, or
+  **Custom**: from a chosen month to a chosen month (the current month at the latest, 240
+  months at most). Beyond 12 months, the axis shows only some of the months, then the years.
 - **Compare with**: no comparison, the previous period or the same period last
   year.
 - **Key figures**: total savings, average savings per month, savings rate,
@@ -305,6 +326,17 @@ Sample queries are in [Insight recipes](insights.md).
   sub-categories, minus withdrawals (blue bars, red for a month of net withdrawal).
   The category name is set with `savings_category` (case and accents ignored). The
   savings rate is `savings / income`.
+- **By category**: every category of a type (Expenses, Income, Off-budget selector) on
+  one chart, main categories (subcategories included) or subcategories. One chip per
+  category, largest first, hides or shows it again; **All** and **None** show or hide them
+  all. **Lines**, **Bars** (stacked) and **Areas** (stacked) buttons; the scale covers the
+  categories shown, the tooltip gives the amount of each and their total. These choices are
+  remembered by the browser.
+- **Custom charts**: one chart per chosen category (subcategories included), subcategory
+  or insight, as monthly bars, lines or areas (the choice of the By category card) with the
+  average of the period, the planned budget
+  (categories) and a tooltip on hover. Administrators add them (**Add a chart**, 12 at
+  most), move and remove them; the list is shared by the household.
 - **Table** view of the data month by month.
 
 ## Tags { #tags }
@@ -375,7 +407,8 @@ the chosen category.
 
 Tree of categories (one level of sub-categories) grouped by type (expenses,
 income, off-budget). **+** adds a category, the pencil edits it (in a modal),
-the trash deletes it. The icon and the color are chosen among those that
+the trash deletes it. The **+** of a top-level category row adds a
+sub-category: the modal opens with this parent and its type already chosen. The icon and the color are chosen among those that
 the mobile apps can display, with a preview. Deleting a category moves its
 transactions to "Uncategorized" and deletes its budgets and rules; a category that has
 sub-categories cannot be deleted. The "Uncategorized" category (0) is
@@ -524,7 +557,7 @@ The configuration file (`data/conf/prod.ini`) section by section,
 with a description of each setting. Secrets (`db_password`, `jwtsecret`,
 `password_salt`, `sync_token`…) are never shown. Only the risk-free settings
 can be edited — `log_level`, `log_retention_days`, `savings_category`, `public_url`, `mfa_required` (two-factor authentication required), `woob_transactions`,
-`woob_logging`, `woob_debug`, `woob_auto_update`, the push notification service
+`woob_logging`, `woob_debug`, `woob_auto_update`, `woob_relabel`, the push notification service
 (`push_api_key`, with the instance key shown on request) and the SMTP server for emails — with
 lists, switches and fields checked by the server; the others carry a
 padlock. Changed settings are highlighted; the bottom bar saves or
