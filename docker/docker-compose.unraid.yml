@@ -3,8 +3,8 @@
 # The image is built on the server from the branch chosen in Portainer. The data is the
 # one of the previous stack: /mnt/user/appdata/carbure and the existing database volume,
 # whose exact name (Portainer > Volumes) is given by DB_VOLUME.
-# Environment variables of the stack: DB_PASSWORD (the one of the previous stack),
-# DB_VOLUME, and CARBURE_PORT when 8080 is taken.
+# Environment variables of the stack: DB_PASSWORD (the one of the previous stack) and
+# DB_VOLUME.
 # Internal URL: https://money.tomatosoft.org through Traefik, on its external network
 # "frontend". The name is a DNS-only CNAME (grey cloud, never proxied) at Cloudflare to
 # traefik.unraid.tomatosoft.org, a private address: it resolves everywhere but is only
@@ -21,8 +21,10 @@ services:
       # The build context is the root of the project
       context: ..
       dockerfile: docker/Dockerfile
-    ports:
-      - "${CARBURE_PORT:-8080}:80"
+    # No published port: the container is only reachable through Traefik. Uncomment for
+    # a direct access (http://<unraid>:8080/), CARBURE_PORT when 8080 is taken.
+    # ports:
+    #   - "${CARBURE_PORT:-8080}:80"
     environment:
       DB_HOST: db
       DB_NAME: carbure
